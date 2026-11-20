@@ -23,6 +23,7 @@
 16. [Kompletny przegląd metod LINQ na przykładach (Lab 05 + .NET 8–10)](#16-kompletny-przegląd-metod-linq-na-przykładach-lab-05--net-810)
 17. [Delegaty, Wyrażenia Lambda i Domknięcia (Closures)](#17-delegaty-wyrażenia-lambda-i-domknięcia-closures)
 18. [Własne iteratory (`yield`), Enumerator i Bloki rozszerzające (C# 14)](#18-własne-iteratory-yield-enumerator-i-bloki-rozszerzające-c-14)
+19. [Generyki, Ograniczenia (`where T : ...`), Inwariancja, Kowariancja (`out`) i Kontrawariancja (`in`)](#19-generyki-ograniczenia-where-t--inwariancja-kowariancja-out-i-kontrawariancja-in)
 
 ---
 
@@ -899,3 +900,115 @@ foreach (var x in fib) // kompilator sam wywoła fib.GetEnumerator()
 }
 ```
 > **Uwaga przy zapętlonych tablicach:** Jeśli robisz `while (true)` na tablicy, na początku sprawdź `if (arr.Length == 0) yield break;` — inaczej pusta tablica bez żadnego `yield return` zawiesi program w nieskończonej pętli!
+
+
+---
+
+## 19. Generyki, Ograniczenia (`where T : ...`), Inwariancja, Kowariancja (`out`) i Kontrawariancja (`in`)
+
+### Po co generyki (zamiast `object`)?
+* Brak **boxingu** dla typów wartościowych (`int`, `double`, `struct`).
+* Pełne **bezpieczeństwo typów** w czasie kompilacji (błąd zamiast `InvalidCastException` w runtime).
+* **Uwaga (JIT):** W czasie wykonania CLR tworzy osobną wersję kodu dla każdego typu wartościowego (`List<int>`, `List<double>`), a dla wszystkich typów referencyjnych (`List<string>`, `List<User>`) współdzieli jedną wersję.
+
+---
+
+### Ograniczenia typów generycznych (`where T : ...`)
+
+Bez ograniczeń kompilator wie o `T` tylko tyle, że dziedziczy po `object` (ma `ToString`, `Equals`, `GetHashCode`). Aby wywoływać metody, operatory czy konstruktory na `T`, trzeba go ograniczyć:
+
+| Ograniczenie | Znaczenie | Przykład użycia |
+| :--- | :--- | :--- |
+| **`where T : INumber<T>`** | Tylko typy liczbowe (`int`, `double`, `decimal`...) z `System.Numerics` | `T Sum<T>(IEnumerable<T> xs) where T : INumber<T>` (daje `+`, `-`, `T.Zero`!) |
+| **`where T : IComparisonOperators<T, T, bool>`** | Typy z operatorami `<`, `>`, `<=`, `>=`, `==` | `T Max<T>(T a, T b) where T : IComparisonOperators<T, T, bool>` |
+| **`where T : IMyInterface`** | Musi implementować podany interfejs (np. `IComparable<T>`) | `where T : IEquatable<T>` (samoodnoszące się ograniczenie) |
+| **`where T : BaseClass`** | Musi dziedziczyć po klasie `BaseClass` | `where T : Vehicle` |
+| **`where T : class` / `class?`** | Musi być typem referencyjnym (opcjonalnie nullowalnym) | `where T : class` |
+| **`where T : struct`** | Musi być typem wartościowym (nie-nullowalnym) | `where T : struct` |
+| **`where T : new()`** | Musi mieć publiczny konstruktor bezparametrowy | `T Create<T>() where T : new() => new T();` |
+| **`where T : notnull`** | Nie może być typem nullowalnym (np. `int?`, `string?`) | `class Cache<TKey> where TKey : notnull` |
+| **`where T : unmanaged`** | Typ wartościowy bez żadnych referencji (bezpieczny do wskaźników) | `where T : unmanaged` |
+
+**Łączenie wielu ograniczeń** (kolejność: `class`/`struct`/`Base`, potem interfejsy, na końcu `new()`):
+```csharp
+public class Repository<T, TKey>
+    where T : BaseEntity, IEquatable<T>, new()
+    where TKey : struct
+{
+    public T CreateEmpty() => new T();
+}
+```
+
+**Przykład z `INumber<T>` (generyczna matematyka):**
+```csharp
+using System.Numerics;
+
+static T Sum<T>(IEnumerable<T> items) where T : INumber<T>
+{
+    T total = T.Zero;
+    foreach (var x in items) total += x;
+    return total;
+}
+
+Console.WriteLine(Sum(new[] { 1, 2, 3 }));       // 6 (int)
+Console.WriteLine(Sum(new[] { 1.5, 2.5 }));      // 4.0 (double)
+```
+
+---
+
+### Inwariancja, Kowariancja (`out`) i Kontrawariancja (`in`)
+
+Załóżmy hierarchię: `class Vehicle {}` oraz `class Car : Vehicle {}`, `class Bike : Vehicle {}`.
+
+#### 1. Inwariancja (domyślna dla klas i struktur!)
+Klasy i struktury generyczne (np. `Stack<T>`, `List<T>`) są **zawsze inwariantne** — nie wolno rzutować parametru `T` ani w górę, ani w dół:
+```csharp
+Stack<Car> carStack = new Stack<Car>();
+// Stack<Vehicle> vStack = carStack; // ❌ BŁĄD! Bo wtedy vStack.Push(new Bike()) zepsułoby stos aut!
+
+Stack<Vehicle> vehicleStack = new Stack<Vehicle>();
+// Stack<Car> cStack = vehicleStack; // ❌ BŁĄD! Bo wtedy cStack.Pop() mogłoby wyjąć Bike zamiast Car!
+```
+
+#### 2. Kowariancja (`out T`) — tylko wychodzi (czytanie / zwracanie)
+Słowo kluczowe **`out`** (dozwolone tylko w **interfejsach** i **delegatach**) mówi kompilatorowi: `T` będzie **tylko zwracane** z metod (nigdy jako parametr wejściowy). Dzięki temu można bezpiecznie rzutować **w górę** (`Car` $\rightarrow$ `Vehicle`):
+
+```csharp
+// KOWARIANCJA: `out T` może być tylko typem zwracanym
+public interface IPoppable<out T>
+{
+    int Count { get; }
+    T Pop(); // ✅ OK — T tylko wychodzi
+    // void Push(T item); // ❌ BŁĄD kompilacji przy `out T`!
+}
+
+void WashVehicles(IPoppable<Vehicle> vehicles) { ... }
+
+IPoppable<Car> cars = new Stack<Car>();
+WashVehicles(cars); // ✅ OK! Skoro daje Car, to na pewno daje też Vehicle!
+```
+*(Przykłady z .NET: `IEnumerable<out T>`, `IReadOnlyList<out T>`, `Func<out TResult>`)*
+
+#### 3. Kontrawariancja (`in T`) — tylko wchodzi (zapisywanie / parametry)
+Słowo kluczowe **`in`** (dozwolone tylko w **interfejsach** i **delegatach**) mówi kompilatorowi: `T` będzie **tylko przyjmowane** jako parametr metod (nigdy zwracane). Dzięki temu można bezpiecznie rzutować **w dół** (`Vehicle` $\rightarrow$ `Car`):
+
+```csharp
+// KONTRAWARIANCJA: `in T` może być tylko parametrem wejściowym
+public interface IPushable<in T>
+{
+    void Push(T item); // ✅ OK — T tylko wchodzi
+    // T Pop();        // ❌ BŁĄD kompilacji przy `in T`!
+}
+
+void DeliverCars(IPushable<Car> garage) => garage.Push(new Car());
+
+IPushable<Vehicle> vehicleParking = new Stack<Vehicle>();
+DeliverCars(vehicleParking); // ✅ OK! Parking na dowolne Vehicle bez problemu przyjmie Car!
+```
+*(Przykłady z .NET: `IComparer<in T>`, `Action<in T>`, `Predicate<in T>`)*
+
+> [!TIP]
+> **Jak to zapamiętać na kolokwium:**
+> * **`out`** = **Output** (tylko zwraca) $\rightarrow$ `IProducer<Car>` pasuje tam, gdzie oczekują `IProducer<Vehicle>` (**w górę**).
+> * **`in`** = **Input** (tylko przyjmuje) $\rightarrow$ `IConsumer<Vehicle>` pasuje tam, gdzie oczekują `IConsumer<Car>` (**w dół**).
+> * Klasa może implementować oba naraz: `class Stack<T> : IPoppable<T>, IPushable<T>`.
