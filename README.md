@@ -128,6 +128,30 @@ var allGenres = movies.SelectMany(m => m.Genres.Split('|'));
 // Wynik: ["Action", "Sci-Fi", "Comedy"]
 ```
 
+#### `SelectMany` z drugim callbackiem (zachowanie elementu rodzica!)
+Domyślnie `SelectMany(x => x.Children)` gubi obiekt rodzica (`x`). Jeśli w wyniku potrzebujesz **zarówno rodzica, jak i każdego jego pod-elementu**, przekaż drugi parametr (`resultSelector`): `(rodzic, dziecko) => wynik`.
+
+```csharp
+// Każdy artysta ma listę gatunków (artist.Genres)
+var artistGenres = artists.SelectMany(
+    artist => artist.Genres,                   // 1. kolekcja podrzędna
+    (artist, genre) => (artist.Name, genre)    // 2. callback łączący rodzica z dzieckiem
+);
+
+// W składni zapytań (Query Syntax) to dokładnie dwie klauzule from:
+var artistGenresQuery =
+    from artist in artists
+    from genre in artist.Genres
+    select (artist.Name, genre);
+```
+
+> [!TIP]
+> **Warianty z indeksem w LINQ:** Do metod `Select` i `Where` również można przekazać drugi parametr z indeksem elementu:
+> ```csharp
+> var numbered = items.Select((item, index) => $"{index}: {item}");
+> var evenPos  = items.Where((item, index) => index % 2 == 0);
+> ```
+
 ---
 
 ## 5. Sortowanie
@@ -419,3 +443,58 @@ Metody wymuszające natychmiastowe wykonanie zapytania i utrwalenie wyników w s
 | | `Aggregate` | Własna operacja akumulacji (odpowiednik Reduce) | ⚡️ Natychmiastowe |
 | **Zbiory** | `Union` / `Intersect` / `Except` | Klasyczne operacje na zbiorach | 🦥 Leniwe (Deferred) |
 | **Kolekcje** | `ToList` / `ToArray` / `ToDictionary` | Zapisuje wynik w pamięci RAM | ⚡️ Natychmiastowe |
+
+
+---
+
+## 15. Formatowanie stringów (`string.Format`, `$""` i maski formatowania)
+
+Kiedy trzeba ładnie sformatować liczby, daty albo wyrównać kolumny w konsoli (jak `"{0,6:F2}"` czy `$"{index,3}: {elem}"`), w C# działa jeden wspólny mechanizm: **Composite Formatting**.
+
+### Składnia placeholdera: `{indeks,szerokość:format}`
+
+Każdy element w klamrach składa się z trzech części (dwie ostatnie są opcjonalne):
+
+```
+{ 0 , 6 : F2 }
+  │   │    └── maska formatu (np. F2 = 2 miejsca po przecinku)
+  │   └─────── szerokość kolumny i wyrównanie (+ do prawej, - do lewej)
+  └─────────── indeks argumentu w string.Format (lub zmienna w $"...")
+```
+
+### `string.Format` vs interpolacja `$""`
+
+| Sposób | Przykład | Kiedy używać |
+| :--- | :--- | :--- |
+| **`string.Format`** | `string.Format("\|{0,6:F2}\|", 5)` $\rightarrow$ `"\|  5.00\|"` | Gdy format przychodzi jako zmienna `string format` (np. parametr metody) |
+| **Interpolacja `$""`** | `$"{index,3}: {elem}"` $\rightarrow$ `"  0: 1"` | Gdy piszesz tekst bezpośrednio w kodzie |
+
+> **Uwaga:** Nie mieszaj ich razem w stylu `string.Format($"{format}", x)` — jeśli `format` to już `"{0,6:F2}"`, pisz po prostu `string.Format(format, x)`.
+
+### Wyrównanie (Alignment)
+
+* **`{0,5}`** (liczba dodatnia) $\rightarrow$ minimalna szerokość **5 znaków**, wyrównanie **do prawej** (`"   42"`).
+* **`{0,-5}`** (liczba ujemna) $\rightarrow$ minimalna szerokość **5 znaków**, wyrównanie **do lewej** (`"42   "`).
+* Jeśli tekst jest dłuższy niż podana szerokość, nie zostanie ucięty — po prostu zajmie tyle miejsca, ile potrzebuje.
+
+### Najpopularniejsze maski formatowania (`:format`)
+
+| Maska | Znaczenie | Przykład (`x = 5` lub `1234.567`) | Wynik |
+| :--- | :--- | :--- | :--- |
+| **`F2`** | Liczba stałoprzecinkowa (2 miejsca po `.`) | `string.Format("{0:F2}", 5)` | `"5.00"` |
+| **`D4`** | Liczba całkowita z zerami wiodącymi | `$"{42:D4}"` | `"0042"` |
+| **`N2`** | Liczba z separatorami tysięcy i 2 miejscami | `$"{1234.567:N2}"` | `"1,234.57"` |
+| **`P1`** | Procenty (mnoży przez 100 i dodaje `%`) | `$"{0.256:P1}"` | `"25.6%"` |
+| **`X`** | System szesnastkowy (hex) | `$"{255:X}"` | `"FF"` |
+| **`yyyy-MM-dd HH:mm`** | Data i czas (`DateTime`) | `$"{dt:yyyy-MM-dd HH:mm}"` | `"2025-01-02 07:37"` |
+| **`m\:ss`** | Czas trwania (`TimeSpan` — uwaga na `\:`!) | `$"{ts:m\\:ss}"` | `"3:31"` |
+
+### Łączenie kolekcji w jeden napis (`string.Join`)
+
+`string.Join(separator, kolekcja)` skleja elementy w jeden `string`, wstawiając `separator` pomiędzy nie (bez zbędnego przecinka na końcu):
+
+```csharp
+var formatted = SeqFormat(Enumerable.Range(5, 5), "|{0,6:F2}|");
+Console.WriteLine(string.Join("~", formatted));
+// Wynik: |  5.00|~|  6.00|~|  7.00|~|  8.00|~|  9.00|
+```
