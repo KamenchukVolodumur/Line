@@ -1012,3 +1012,37 @@ DeliverCars(vehicleParking); // ✅ OK! Parking na dowolne Vehicle bez problemu 
 > * **`out`** = **Output** (tylko zwraca) $\rightarrow$ `IProducer<Car>` pasuje tam, gdzie oczekują `IProducer<Vehicle>` (**w górę**).
 > * **`in`** = **Input** (tylko przyjmuje) $\rightarrow$ `IConsumer<Vehicle>` pasuje tam, gdzie oczekują `IConsumer<Car>` (**w dół**).
 > * Klasa może implementować oba naraz: `class Stack<T> : IPoppable<T>, IPushable<T>`.
+
+
+#### Praktyczny przykład: własne `Reduce` + `Sum`, `Max`, `Min` na `INumber<T>`
+Świetny przykład połączenia **metod rozszerzających**, **delegatów (`Func`)** oraz **ograniczeń generycznych (`INumber<T>`)**:
+
+```csharp
+using System.Numerics;
+
+public static class EnumerableExtensions
+{
+    // Własny odpowiednik LINQ Aggregate
+    public static TAccumulate Reduce<TSource, TAccumulate>(
+        this IEnumerable<TSource> source,
+        TAccumulate seed,
+        Func<TAccumulate, TSource, TAccumulate> accumulator)
+    {
+        TAccumulate result = seed;
+        foreach (var item in source)
+            result = accumulator(result, item);
+        return result;
+    }
+
+    public static T Sum<T>(this IEnumerable<T> source) where T : INumber<T>
+        => source.Reduce(T.Zero, (acc, x) => acc + x);
+
+    public static T Max<T>(this IEnumerable<T> source) where T : INumber<T>
+        => source.Reduce(T.CreateTruncating(double.NegativeInfinity), T.Max);
+
+    public static T Min<T>(this IEnumerable<T> source) where T : INumber<T>
+        => source.Reduce(T.CreateTruncating(double.PositiveInfinity), T.Min);
+}
+```
+* **`T.CreateTruncating(double.NegativeInfinity)`** automatycznie daje `int.MinValue` dla `int` oraz `-Infinity` dla `double`/`float` (analogicznie `PositiveInfinity` daje `int.MaxValue` / `+Infinity`).
+* **`T.Max` i `T.Min`** to statyczne metody interfejsu `INumber<T>`, które można przekazać bezpośrednio jako grupę metod do `Reduce`.
