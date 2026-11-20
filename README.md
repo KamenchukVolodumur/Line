@@ -25,6 +25,7 @@
 18. [Własne iteratory (`yield`), Enumerator i Bloki rozszerzające (C# 14)](#18-własne-iteratory-yield-enumerator-i-bloki-rozszerzające-c-14)
 19. [Generyki, Ograniczenia (`where T : ...`), Inwariancja, Kowariancja (`out`) i Kontrawariancja (`in`)](#19-generyki-ograniczenia-where-t--inwariancja-kowariancja-out-i-kontrawariancja-in)
 20. [Praktyczny przykład (Lab 14): 5 zapytań LINQ w Method Syntax na bazie sklepu](#20-praktyczny-przykład-lab-14-5-zapytań-linq-w-method-syntax-na-bazie-sklepu)
+21. [Praca z `DateTime` i `TimeSpan` (daty, różnice czasu, formatowanie)](#21-praca-z-datetime-i-timespan-daty-różnice-czasu-formatowanie)
 
 ---
 
@@ -1199,4 +1200,58 @@ public static IEnumerable<(string FirstName, string LastName, decimal TotalExpen
         .OrderBy(x => x.LastName)
         .ThenBy(x => x.FirstName);
 }
+```
+
+
+---
+
+## 21. Praca z `DateTime` i `TimeSpan` (daty, różnice czasu, formatowanie)
+
+### Tworzenie i pobieranie aktualnego czasu
+> **Uwaga:** `UtcNow`, `Now` i `Today` to **właściwości** (bez nawiasów `()`!).
+
+```csharp
+DateTime nowUtc = DateTime.UtcNow; // aktualny czas uniwersalny (UTC) — używaj do baz danych!
+DateTime nowLoc = DateTime.Now;    // aktualny czas lokalny komputera
+DateTime today  = DateTime.Today;  // dzisiejsza data z godziną 00:00:00
+DateTime custom = new DateTime(2025, 1, 2, 7, 37, 0); // rok, miesiąc, dzień, godz, min, sek
+```
+
+### Różnica między datami $\rightarrow$ `TimeSpan`
+Odjęcie dwóch obiektów `DateTime` zwraca **`TimeSpan`** (przedział czasu):
+
+```csharp
+TimeSpan diff = DateTime.UtcNow - customer.RegistrationDate; // od nowszej odejmujemy starszą!
+```
+
+### Pułapka: `.Days` / `.Hours` vs `.TotalDays` / `.TotalHours`
+
+| Właściwość | Typ | Co zwraca (dla `2 dni, 3 godz., 15 min`) | Kiedy używać |
+| :--- | :--- | :--- | :--- |
+| **`.Days`** | `int` | `2` (tylko pełne dni) | Gdy potrzebujesz liczby całkowitej dni |
+| **`.TotalDays`** | `double` | `2.135...` (całość w dniach z ułamkiem) | Gdy w zadaniu jest `double` lub dokładna różnica |
+| **`.Hours` / `.Minutes`** | `int` | `3` / `15` (tylko reszta z zegara: 0–23 / 0–59) | W połączeniu z `TotalHours` do formatu `"51 h 15 min"` |
+| **`.TotalHours`** | `double` | `51.25` (wszystkie godziny łącznie!) | Gdy sumujesz czas powyżej 24 godzin |
+
+```csharp
+// Ładne formatowanie długiego czasu (np. 252 h 11 min):
+string formatted = $"{(int)diff.TotalHours} h {diff.Minutes:D2} min";
+```
+
+### Dodawanie czasu i przydatne właściwości
+```csharp
+DateTime inWeek   = dt.AddDays(7);              // +7 dni (zwraca nowy DateTime, nie mutuje starego!)
+DateTime earlier  = dt.AddHours(-2);            // -2 godziny
+DateTime endTime  = play.Timestamp + play.Duration; // DateTime + TimeSpan -> DateTime
+
+bool isWeekend    = dt.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
+int month         = dt.Month; // 1..12
+int hour          = dt.Hour;  // 0..23
+```
+
+### Szybkie formatowanie dat i czasu
+```csharp
+Console.WriteLine($"{dt:yyyy-MM-dd HH:mm}"); // "2025-01-02 07:37"
+Console.WriteLine($"{dt:MMM}");              // "Jan" (przy CultureInfo.InvariantCulture)
+Console.WriteLine($"{ts:m\\:ss}");           // "3:31" (w TimeSpan dwukropek trzeba eskejpować \:)
 ```
