@@ -473,7 +473,13 @@ Każdy element w klamrach składa się z trzech części (dwie ostatnie są opcj
 | **`string.Format`** | `string.Format("\|{0,6:F2}\|", 5)` $\rightarrow$ `"\|  5.00\|"` | Gdy format przychodzi jako zmienna `string format` (np. parametr metody) |
 | **Interpolacja `$""`** | `$"{index,3}: {elem}"` $\rightarrow$ `"  0: 1"` | Gdy piszesz tekst bezpośrednio w kodzie |
 
-> **Uwaga:** Nie mieszaj ich razem w stylu `string.Format($"{format}", x)` — jeśli `format` to już `"{0,6:F2}"`, pisz po prostu `string.Format(format, x)`.
+> **Uwaga:** Nie mieszaj ich razem w stylu `string.Format($"{format}", x)` — jeśli `format` to już `"{0,6:F2}"`, pisz po prostu `string.Format(format, x)`. Wyobraź sobie `format` jako **szablon z dziurą `{0}`**, w którą `string.Format(format, e)` wstawia element `e` (np. `"{0}"` $\rightarrow$ `"5"`, `"Liczba: {0}"` $\rightarrow$ `"Liczba: 5"`).
+
+**To samo w `Console.WriteLine` (oba zapisy robią dokładnie to samo):**
+```csharp
+Console.WriteLine("{0,3}: {1}", index, elem); // styl string.Format (numery argumentów {0}, {1})
+Console.WriteLine($"{index,3}: {elem}");      // styl interpolacji $"" (nazwy zmiennych wprost)
+```
 
 ### Wyrównanie (Alignment)
 
