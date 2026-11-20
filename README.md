@@ -24,6 +24,7 @@
 17. [Delegaty, Wyrażenia Lambda i Domknięcia (Closures)](#17-delegaty-wyrażenia-lambda-i-domknięcia-closures)
 18. [Własne iteratory (`yield`), Enumerator i Bloki rozszerzające (C# 14)](#18-własne-iteratory-yield-enumerator-i-bloki-rozszerzające-c-14)
 19. [Generyki, Ograniczenia (`where T : ...`), Inwariancja, Kowariancja (`out`) i Kontrawariancja (`in`)](#19-generyki-ograniczenia-where-t--inwariancja-kowariancja-out-i-kontrawariancja-in)
+20. [Praktyczny przykład (Lab 14): 5 zapytań LINQ w Method Syntax na bazie sklepu](#20-praktyczny-przykład-lab-14-5-zapytań-linq-w-method-syntax-na-bazie-sklepu)
 
 ---
 
@@ -1046,3 +1047,156 @@ public static class EnumerableExtensions
 ```
 * **`T.CreateTruncating(double.NegativeInfinity)`** automatycznie daje `int.MinValue` dla `int` oraz `-Infinity` dla `double`/`float` (analogicznie `PositiveInfinity` daje `int.MaxValue` / `+Infinity`).
 * **`T.Max` i `T.Min`** to statyczne metody interfejsu `INumber<T>`, które można przekazać bezpośrednio jako grupę metod do `Reduce`.
+
+
+---
+
+## 20. Praktyczny przykład (Lab 14): 5 zapytań LINQ w Method Syntax na bazie sklepu
+
+### Schemat bazy danych (`Database`)
+
+```csharp
+public readonly record struct Customer(uint CustomerId, string FirstName, string LastName, string Address, DateTime RegistrationDate);
+public readonly record struct Product(uint ProductId, string Name, decimal Price);
+public readonly record struct Order(uint OrderId, uint CustomerId, DateTime Date);
+public readonly record struct OrderProduct(uint OrderId, uint ProductId, uint Quantity);
+
+public class Database
+{
+    public IEnumerable<Customer> Customers { get; private set; }
+    public IEnumerable<Product> Products { get; private set; }
+    public IEnumerable<Order> Orders { get; private set; }
+    public IEnumerable<OrderProduct> OrderProducts { get; private set; }
+}
+```
+
+---
+
+### Zadanie 1: Klienci bez żadnych zamówień (posortowani po nazwisku i imieniu)
+Używamy `GroupJoin` (lub `ExceptBy`), aby znaleźć klientów z 0 zamówień, a następnie sortujemy `OrderBy` + `ThenBy`:
+
+```csharp
+public static IEnumerable<(uint ID, string FirstName, string LastName)> GetCustomersWithoutOrders(Database database)
+{
+    return database.Customers
+        .GroupJoin(
+            database.Orders,
+            c => c.CustomerId,
+            o => o.CustomerId,
+            (c, orders) => (Customer: c, OrderCount: orders.Count()))
+        .Where(x => x.OrderCount == 0)
+        .OrderBy(x => x.Customer.LastName)
+        .ThenBy(x => x.Customer.FirstName)
+        .Select(x => (x.Customer.CustomerId, x.Customer.FirstName, x.Customer.LastName));
+}
+```
+
+---
+
+### Zadanie 2: Klienci zarejestrowani co najmniej N dni temu (UTC, od najdawniejszej)
+Różnicę dni liczymy **raz** w pierwszym `.Select` (tworząc od razu krotkę, żeby uniknąć drugiego `.Select`), porównujemy `>= daysAgo` i sortujemy malejąco:
+
+```csharp
+public static IEnumerable<(string FirstName, string LastName, int Days)> GetCustomersRegisteredAtLeastNDaysAgo(Database database, int daysAgo)
+{
+    return database.Customers
+        .Select(cust => (
+            cust.FirstName,
+            cust.LastName,
+            Days: (DateTime.UtcNow - cust.RegistrationDate).Days
+        ))
+        .Where(c => c.Days >= daysAgo)
+        .OrderByDescending(c => c.Days);
+}
+```
+
+---
+
+### Zadanie 3: 10 klientów, którzy jako pierwsi złożyli zamówienie
+Łączymy klientów z ich zamówieniami (`GroupJoin`), odrzucamy tych bez zamówień (`.Where(x => x.Orders.Any())`), bierzemy najwcześniejszą datę (`.Min(o => o.Date)`) i liczymy różnicę w dniach jako `double` (`.TotalDays`):
+
+```csharp
+public static IEnumerable<(uint ID, DateTime FirstOrderDate, double DaysFromRegistration)> GetCustomersFirstOrderInfo(Database database)
+{
+    return database.Customers
+        .GroupJoin(
+            database.Orders,
+            c => c.CustomerId,
+            o => o.CustomerId,
+            (c, orders) => (Customer: c, Orders: orders))
+        .Where(x => x.Orders.Any())
+        .Select(x =>
+        {
+            var firstOrderDate = x.Orders.Min(o => o.Date);
+            return (
+                ID: x.Customer.CustomerId,
+                FirstOrderDate: firstOrderDate,
+                DaysFromRegistration: (firstOrderDate - x.Customer.RegistrationDate).TotalDays
+            );
+        })
+        .OrderBy(x => x.FirstOrderDate)
+        .Take(10);
+}
+```
+
+---
+
+### Zadanie 4: 5 najczęściej zamawianych produktów (według łącznej liczby sztuk)
+`GroupJoin` na `Products` i `OrderProducts` + rzutowanie `(long)op.Quantity` w `.Sum()` (ponieważ `Sum` nie ma wersji dla `uint`):
+
+```csharp
+public static IEnumerable<(string ProductName, long TotalCount)> GetMostOrderedProducts(Database database)
+{
+    return database.Products
+        .GroupJoin(
+            database.OrderProducts,
+            p => p.ProductId,
+            op => op.ProductId,
+            (p, ops) => (
+                ProductName: p.Name,
+                TotalCount: ops.Sum(op => (long)op.Quantity)
+            ))
+        .OrderByDescending(x => x.TotalCount)
+        .Take(5);
+}
+```
+
+---
+
+### Zadanie 5: Wydatki każdego klienta (suma, liczba zamówień, średnia na zamówienie)
+1. Łączymy `OrderProducts` z `Products` (`Join`), żeby policzyć `Quantity * Price`, i grupujemy po `Orders` (`GroupJoin`) do `orderTotals`.
+2. Łączymy `Customers` z `orderTotals` (`GroupJoin`) — uwaga na `count > 0 ? total / count : 0m`, żeby nie dzielić przez `0` dla klientów bez zamówień!
+
+```csharp
+public static IEnumerable<(string FirstName, string LastName, decimal TotalExpenses, int OrderCount, decimal AvgExpenses)> GetCustomersExpenses(Database database)
+{
+    var orderTotals = database.Orders
+        .GroupJoin(
+            database.OrderProducts.Join(
+                database.Products,
+                op => op.ProductId,
+                p => p.ProductId,
+                (op, p) => (op.OrderId, Cost: op.Quantity * p.Price)),
+            o => o.OrderId,
+            item => item.OrderId,
+            (o, items) => (
+                o.CustomerId,
+                Total: items.Sum(i => i.Cost)
+            ));
+
+    return database.Customers
+        .GroupJoin(
+            orderTotals,
+            c => c.CustomerId,
+            o => o.CustomerId,
+            (c, customerOrders) =>
+            {
+                int count = customerOrders.Count();
+                decimal total = customerOrders.Sum(o => o.Total);
+                decimal avg = count > 0 ? total / count : 0m;
+                return (c.FirstName, c.LastName, total, count, avg);
+            })
+        .OrderBy(x => x.LastName)
+        .ThenBy(x => x.FirstName);
+}
+```
