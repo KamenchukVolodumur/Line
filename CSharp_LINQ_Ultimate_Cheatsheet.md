@@ -664,3 +664,196 @@ var inf   = Enumerable.InfiniteSequence(0, x => x + 2); // (.NET 10) 0, 2, 4, 6,
   * `arr[..5]` zamiast `arr.Take(5).ToArray()`
   * `s[1..4]` zamiast `string.Concat(s.Skip(1).Take(3))`
   * `arr[^1]` — ostatni element (`Index` od końca)
+
+
+---
+
+## 17. Delegaty, Wyrażenia Lambda i Domknięcia (Closures)
+
+### Co to jest delegat?
+Delegat to **typ reprezentujący referencję do metody** (bezpieczny odpowiednik wskaźnika na funkcję). Pozwala przekazywać funkcje jako argumenty, zapisywać je w polach/zmiennych i zwracać z innych metod.
+
+### Wbudowane typy delegat (nie trzeba tworzyć własnych `delegate`)
+
+| Typ delegata | Sygnatura | Przykład |
+| :--- | :--- | :--- |
+| **`Action<T1, ...>`** | zwraca `void` | `Action<string, int> print = (label, val) => Console.WriteLine($"{label,-30}{val,6}");` |
+| **`Func<T1, ..., TResult>`** | ostatni typ to wynik | `Func<Play, bool> isLong = p => p.MsPlayed > 60_000;` |
+| **`Predicate<T>`** | zawsze `T -> bool` | `Predicate<Play> isSkip = p => p.Duration < TimeSpan.FromSeconds(30);` |
+| **`Comparison<T>`** | `(T, T) -> int` | `Comparison<int> cmp = (a, b) => a.CompareTo(b);` |
+
+### Delegaty wielokrotne (`+=`, `-=`)
+Do zmiennej delegata można dopinać wiele metod:
+```csharp
+Action log = () => Console.WriteLine("one");
+log += () => Console.WriteLine("two");
+log(); // wypisze "one", a potem "two"
+```
+> [!NOTE]
+> Jeśli delegat zwraca wartość (np. `Func`), wywołanie wielokrotne zwraca wynik **tylko ostatniej** przypisanej metody.
+
+---
+
+### Sposoby tworzenia delegatów
+
+1. **Grupa metod (Method Group)** — przekazanie nazwy istniejącej metody:
+   ```csharp
+   Func<Play, bool> f = Filters.IsSkip;
+   ```
+2. **Wyrażenie lambda** — funkcja anonimowa pisana w locie:
+   ```csharp
+   Func<Play, bool> f = p => p.MsPlayed < 1000;
+   ```
+3. **Lambda zapisana w polu klasy (`static readonly`)** — zachowuje się jak metoda, ale jest już gotowym obiektem delegata:
+   ```csharp
+   // Modyfikator `static` przed lambdą ZABRANIA przechwytywania zmiennych z zewnątrz
+   // (chroni przed ukrytymi alokacjami na stercie; przy próbie użycia zmiennej lokalnej -> błąd CS8820/CS8821)
+   public static readonly Func<Play, bool> AtNight =
+       static play => play.Timestamp.Hour is >= 22 or < 6;
+   ```
+
+---
+
+### Domknięcia (Closures) i Fabryki delegatów
+Gdy lambda używa zmiennej lub parametru z otaczającej ją metody, nazywamy ją **domknięciem (closure)**. Metoda zwracająca taką lambdę działa jak **fabryka filtrów**:
+
+```csharp
+// Każde wywołanie InMonth(5) tworzy nową funkcję pamiętającą, że month == 5
+public static Func<Play, bool> InMonth(int month) =>
+    play => play.Timestamp.Month == month;
+
+// Optymalizacja z domknięciem: HashSet budujemy RAZ przy tworzeniu filtra, a nie przy każdym elemencie!
+public static Func<Play, bool> ByArtist(MusicLibrary library, string artistName)
+{
+    var trackIds = new HashSet<int>();
+    // ... pętla zbierająca ID utworów danego wykonawcy do trackIds ...
+    return play => trackIds.Contains(play.TrackId); // lambda przechwytuje gotowy trackIds
+}
+```
+
+### Kombinatory filtrów (łączenie delegatów)
+```csharp
+public static Func<Play, bool> Not(Func<Play, bool> filter) =>
+    play => !filter(play);
+
+public static Func<Play, bool> All(params Func<Play, bool>[] filters) =>
+    play =>
+    {
+        foreach (var f in filters)
+            if (!f(play)) return false;
+        return true;
+    };
+
+public static Func<Play, bool> Any(params Func<Play, bool>[] filters) =>
+    play =>
+    {
+        foreach (var f in filters)
+            if (f(play)) return true;
+        return false;
+    };
+```
+
+---
+
+### Pułapka 1: `Func<T, bool>` vs `Predicate<T>` (`List<T>.RemoveAll`)
+Mimo że `Func<Play, bool>` i `Predicate<Play>` mają identyczną sygnaturę, to **są to różne, niekompatybilne typy**!
+* **Grupa metod lub lambda** konwertuje się automatycznie na dowolny z nich.
+* **Gotowy obiekt typu `Func<Play, bool>`** NIE konwertuje się automatycznie na `Predicate<Play>` — trzeba go jawnie opakować:
+
+```csharp
+List<Play> streams = [.. plays];
+streams.RemoveAll(Filters.IsSkip);                       // ✅ OK — grupa metod
+streams.RemoveAll(p => p.Timestamp.Hour == 7);           // ✅ OK — lambda
+// streams.RemoveAll(Filters.AtNight);                   // ❌ Błąd CS1503: Func<Play,bool> != Predicate<Play>
+streams.RemoveAll(new Predicate<Play>(Filters.AtNight)); // ✅ OK — jawna konwersja
+```
+
+### Pułapka 2: Przechwycona zmienna pętli `for`
+```csharp
+var monthFilters = new List<Func<Play, bool>>();
+for (int month = 1; month <= 12; month++)
+{
+    monthFilters.Add(p => p.Timestamp.Month == month); // ❌ BŁĄD! Wszystkie 12 lambd wskazuje na TĘ SAMĄ zmienną `month`!
+}
+// Po pętli `month` ma wartość 13 -> każdy filtr zwraca false (0 wyników)!
+```
+**Rozwiązanie:**
+1. Skopiuj zmienną w ciele pętli: `int m = month; monthFilters.Add(p => p.Timestamp.Month == m);`
+2. Albo użyj fabryki: `monthFilters.Add(Filters.InMonth(month));` (parametr funkcji to osobna zmienna dla każdego wywołania).
+*(W pętli `foreach` od C# 5 problem nie występuje, bo kompilator sam tworzy nową zmienną w każdej iteracji).*
+
+---
+
+## 18. Własne iteratory (`yield`), Enumerator i Bloki rozszerzające (C# 14)
+
+### Ręczne użycie `IEnumerator<T>` (np. `Pairwise`)
+Pętla `foreach` to tylko lukier składniowy na `GetEnumerator()`, `MoveNext()` i `Current`. Ręczne sterowanie przydaje się, gdy pierwszy element trzeba obsłużyć inaczej:
+
+```csharp
+public static IEnumerable<(T Previous, T Current)> Pairwise<T>(this IEnumerable<T> source)
+{
+    using var enumerator = source.GetEnumerator(); // IEnumerator<T> jest IDisposable
+    if (!enumerator.MoveNext())
+        yield break; // pusta sekwencja — kończymy iterator
+
+    T previous = enumerator.Current;
+    while (enumerator.MoveNext())
+    {
+        yield return (previous, enumerator.Current);
+        previous = enumerator.Current;
+    }
+}
+```
+
+### Natychmiastowe sprawdzanie argumentów w iteratorach
+Metoda zawierająca `yield return` wykonuje się **dopiero przy starcie iteracji** (`foreach`), a nie w momencie wywołania! Aby wyjątek (np. `ArgumentOutOfRangeException`) rzucić **od razu** przy wywołaniu, rozdzielamy walidację od lokalnej funkcji z `yield`:
+
+```csharp
+public static IEnumerable<T[]> Window<T>(this IEnumerable<T> source, int size)
+{
+    ArgumentOutOfRangeException.ThrowIfLessThan(size, 1); // ✅ sprawdzane NATYCHMIAST
+    return Iterator();
+
+    IEnumerable<T[]> Iterator() // lokalna funkcja iterująca z yield
+    {
+        var window = new Queue<T>(size);
+        foreach (var item in source)
+        {
+            window.Enqueue(item);
+            if (window.Count > size) window.Dequeue();
+            if (window.Count == size) yield return window.ToArray();
+        }
+    }
+}
+```
+
+### Bloki rozszerzające (Extension blocks — nowość w C# 14)
+Klasyczne metody rozszerzające (`this IEnumerable<T> source`) pozwalają dodawać tylko **metody**. Nowa składnia `extension(Receiver receiver)` w klasie statycznej pozwala dodawać także **właściwości rozszerzające**, operatory i składowe statyczne:
+
+```csharp
+public static class ListeningExtensions
+{
+    // Blok rozszerzający dla IEnumerable<Play>
+    extension(IEnumerable<Play> plays)
+    {
+        // Właściwość rozszerzająca (wywołanie: plays.TotalListeningTime bez nawiasów!)
+        public TimeSpan TotalListeningTime
+        {
+            get
+            {
+                var total = TimeSpan.Zero;
+                foreach (var play in plays) total += play.Duration;
+                return total;
+            }
+        }
+    }
+
+    // Blok rozszerzający dla TimeSpan
+    extension(TimeSpan ts)
+    {
+        // Metoda rozszerzająca (wywołanie: ts.ToHoursAndMinutes())
+        public string ToHoursAndMinutes() => $"{(int)ts.TotalHours} h {ts.Minutes:D2} min";
+    }
+}
+```
+> Obie składnie (`this ...` oraz `extension(...)`) kompilują się do zwykłych metod statycznych i można je mieszać w jednym projekcie.
