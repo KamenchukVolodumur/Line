@@ -498,3 +498,169 @@ var formatted = SeqFormat(Enumerable.Range(5, 5), "|{0,6:F2}|");
 Console.WriteLine(string.Join("~", formatted));
 // Wynik: |  5.00|~|  6.00|~|  7.00|~|  8.00|~|  9.00|
 ```
+
+
+---
+
+## 16. Kompletny przegląd metod LINQ na przykładach (Lab 05 + .NET 8–10)
+
+Poniżej znajduje się ściąga ze **wszystkich** metod omawianych na laboratoriach (w tym nowych z .NET 9/10), z krótkim przykładem działania.
+
+> [!WARNING]
+> **Pułapka wielokrotnej enumeracji:** Jeśli wywołasz na tym samym zapytaniu `query.Any()`, a potem `query.First()`, zapytanie wykona się **dwa razy**! Jeśli chcesz użyć wyniku wielokrotnie, najpierw zmaterializuj go przez `.ToList()` lub `.ToArray()`.
+> **Nieskończone sekwencje:** Nigdy nie używaj `OrderBy`, `Reverse`, `Count`, `Sum` ani `ToList` na nieskończonych sekwencjach (np. `InfiniteSequence`) bez wcześniejszego `.Take(n)`!
+
+---
+
+### A. Operacje na zbiorach (Set operations)
+
+Załóżmy: `a = [1, 2, 2, 3]`, `b = [2, 3, 4]`.
+
+| Metoda | Przykład | Wynik | Co robi |
+| :--- | :--- | :--- | :--- |
+| **`Concat`** | `a.Concat(b)` | `[1, 2, 2, 3, 2, 3, 4]` | Skleja dwie sekwencje (zachowuje duplikaty) |
+| **`Union`** | `a.Union(b)` | `[1, 2, 3, 4]` | Suma zbiorów (usuwa duplikaty) |
+| **`UnionBy`** | `users1.UnionBy(users2, u => u.Id)` | unikalne wg `Id` | Suma zbiorów porównywana po kluczu |
+| **`Intersect`** | `a.Intersect(b)` | `[2, 3]` | Część wspólna (elementy w obu) |
+| **`IntersectBy`** | `users.IntersectBy(ids, u => u.Id)` | userzy o podanych `Id` | Część wspólna po kluczu |
+| **`Except`** | `a.Except(b)` | `[1]` | Różnica zbiorów (`a \ b`) |
+| **`ExceptBy`** | `tracks.ExceptBy(playedIds, t => t.Id)` | nieodtworzone utwory | Różnica po kluczu (świetne do "czego nie ma") |
+| **`Distinct`** | `a.Distinct()` | `[1, 2, 3]` | Usuwa duplikaty |
+| **`DistinctBy`** | `users.DistinctBy(u => u.City)` | po 1 osobie z miasta | Usuwa duplikaty według klucza |
+
+---
+
+### B. Partycjonowanie (krojenie sekwencji)
+
+Załóżmy: `nums = [1, 2, 5, 2, 1]`.
+
+| Metoda | Przykład | Wynik | Co robi |
+| :--- | :--- | :--- | :--- |
+| **`Take(n)`** | `nums.Take(3)` | `[1, 2, 5]` | Bierze pierwsze `n` elementów |
+| **`TakeLast(n)`** | `nums.TakeLast(2)` | `[2, 1]` | Bierze ostatnie `n` elementów |
+| **`TakeWhile(p)`** | `nums.TakeWhile(x => x < 4)` | `[1, 2]` | Bierze dopóki warunek jest prawdziwy (przerywa na `5`!) |
+| **`Skip(n)`** | `nums.Skip(2)` | `[5, 2, 1]` | Pomija pierwsze `n` elementów |
+| **`SkipLast(n)`** | `nums.SkipLast(2)` | `[1, 2, 5]` | Pomija ostatnie `n` elementów |
+| **`SkipWhile(p)`** | `nums.SkipWhile(x => x < 4)` | `[5, 2, 1]` | Pomija dopóki warunek jest prawdziwy (od `5` bierze już wszystko) |
+| **`Chunk(size)`** | `nums.Chunk(2)` | `[[1, 2], [5, 2], [1]]` | Dzieli na paczki (tablice) o zadanym rozmiarze |
+
+---
+
+### C. Łączenie (Join, GroupJoin, LeftJoin, RightJoin, Zip)
+
+```csharp
+// 1. Join (INNER JOIN) — tylko dopasowane pary
+var inner = plays.Join(tracks, p => p.TrackId, t => t.Id, (p, t) => (p, t));
+
+// 2. GroupJoin (1-do-wielu) — każdy element z lewej + kolekcja pasujących z prawej (może być pusta)
+var withCounts = tracks.GroupJoin(plays, t => t.Id, p => p.TrackId,
+    (track, trackPlays) => (track.Title, Count: trackPlays.Count()));
+
+// 3. LeftJoin (.NET 10) — każdy z lewej; jeśli brak dopasowania, prawy = null (default)
+var left = artists.LeftJoin(plays, a => a.Id, p => p.ArtistId,
+    (artist, play) => (artist.Name, Play: play)); // play == null, gdy brak odtworzeń
+
+// 4. RightJoin (.NET 10) — odwrotnie: każdy z prawej, lewy może być null
+var right = artists.RightJoin(plays, a => a.Id, p => p.ArtistId,
+    (artist, play) => (ArtistName: artist?.Name, play));
+
+// 5. Zip — łączy "suwakiem" element po elemencie: [1,2] + ["a","b"] -> [(1,"a"), (2,"b")]
+var pairs = new[] { 1, 2 }.Zip(new[] { "a", "b" });
+```
+
+---
+
+### D. Sortowanie i tasowanie
+
+| Metoda | Przykład | Co robi |
+| :--- | :--- | :--- |
+| **`Order()` / `OrderDescending()`** | `nums.Order()` | Sortuje bezpośrednio po wartości elementu (bez `x => x`) |
+| **`OrderBy` / `OrderByDescending`** | `users.OrderBy(u => u.Age)` | Sortuje po wybranym kluczu |
+| **`ThenBy` / `ThenByDescending`** | `.OrderBy(u => u.Age).ThenBy(u => u.Name)` | Drugie (kolejne) kryterium przy remisach |
+| **`Reverse()`** | `nums.Reverse()` | Odwraca kolejność elementów |
+| **`Shuffle()`** *(.NET 10)* | `nums.Shuffle()` | Losowo tasuje elementy sekwencji |
+
+---
+
+### E. Wybór pojedynczych elementów i kwantyfikatory
+
+| Metoda | Gdy jest wynik | Gdy pusto | Gdy > 1 element |
+| :--- | :--- | :--- | :--- |
+| **`First()` / `FirstOrDefault()`** | pierwszy | wyjątek / `default` | pierwszy |
+| **`Last()` / `LastOrDefault()`** | ostatni | wyjątek / `default` | ostatni |
+| **`Single()` / `SingleOrDefault()`** | jedyny | wyjątek / `default` | **wyjątek!** |
+| **`ElementAt(i)` / `ElementAtOrDefault(i)`** | element na indeksie `i` (obsługuje `^1`!) | wyjątek / `default` | element na `i` |
+| **`DefaultIfEmpty(val)`** | oryginalna sekwencja | `[val]` (lub `[default]`) | oryginalna sekwencja |
+| **`All` / `Any` / `Contains`** | `bool`: czy wszystkie / czy którykolwiek / czy zawiera konkretny element | | |
+
+---
+
+### F. Agregacja, grupowanie i generowanie
+
+```csharp
+// Aggregate — własna redukcja (np. iloczyn elementów: 1 * 2 * 3 * 4 = 24)
+int product = new[] { 1, 2, 3, 4 }.Aggregate(1, (acc, x) => acc * x);
+
+// AggregateBy (.NET 9+) — grupowanie i agregacja w jednym kroku (zwraca KeyValuePair<TKey, TAccumulate>)
+var sumByCategory = items.AggregateBy(
+    keySelector: i => i.Category,
+    seed: 0m,
+    func: (total, item) => total + item.Price);
+
+// MinBy / MaxBy — zwraca cały obiekt, a nie samą wartość liczbową
+var oldest = users.MaxBy(u => u.Age);
+
+// SequenceEqual — porównuje dwie sekwencje element po elemencie (kolejność ma znaczenie!)
+bool same = list1.SequenceEqual(list2);
+
+// ToLookup — natychmiastowy słownik "klucz -> wiele elementów" (bezpieczny odczyt brakującego klucza zwraca pustą kolekcję!)
+ILookup<string, User> byCity = users.ToLookup(u => u.City);
+var warsawUsers = byCity["Warszawa"]; // nie rzuci wyjątku, nawet jeśli brak klucza
+
+// Generowanie sekwencji:
+var empty = Enumerable.Empty<int>();                  // []
+var range = Enumerable.Range(1, 5);                   // [1, 2, 3, 4, 5]
+var rep   = Enumerable.Repeat("hi", 3);               // ["hi", "hi", "hi"]
+var prep  = nums.Prepend(0);                          // dodaje 0 na początek (Append na koniec)
+var inf   = Enumerable.InfiniteSequence(0, x => x + 2); // (.NET 10) 0, 2, 4, 6, ... (użyj z .Take(n)!)
+```
+
+---
+
+### G. Składnia zapytań (Query Syntax): `let` i `into`
+
+* **`let`** — zapisuje zmienną pomocniczą wewnątrz zapytania, żeby nie liczyć jej dwa razy:
+  ```csharp
+  var res = from x in source
+            let y = x.Price * 1.23m
+            where y >= 100
+            select new { x.Name, Brutto = y };
+  ```
+* **`into`** — przekazuje wynik `group` lub `join` do dalszego przetwarzania (np. `GroupJoin`):
+  ```csharp
+  var res = from a in artists
+            join p in plays on a.Id equals p.ArtistId into artistPlays
+            select new { a.Name, Count = artistPlays.Count() };
+  ```
+* **Łączenie obu składni:** `(from n in numbers where n > 5 select n).Take(3).ToList()`
+
+---
+
+### H. PLINQ (`AsParallel`) i Zakresy (`Index`, `Range`)
+
+* **PLINQ** (zrównoleglenie obliczeń CPU dla dużych kolekcji w pamięci):
+  ```csharp
+  var sum = Enumerable.Range(0, 1_000_000)
+      .AsParallel()        // dzieli pracę na wątki (nie wywołuj wielokrotnie!)
+      .AsOrdered()         // opcjonalnie: zachowuje pierwotną kolejność (wolniejsze)
+      .Where(x => ExpensiveCheck(x))
+      .AsSequential()      // powrót do trybu jednowątkowego dla dalszych kroków
+      .Sum();
+  ```
+  *(Do szybkiej akcji równoległej na każdym elemencie: `.ForAll(x => ...)`)*
+
+* **Zakresy (`..`, `^`) vs LINQ:**
+  Dla tablic `int[]`, `string` oraz `List<T>` zwykłe zakresy są **znacznie szybsze** i nie alokują enumeratorów:
+  * `arr[..5]` zamiast `arr.Take(5).ToArray()`
+  * `s[1..4]` zamiast `string.Concat(s.Skip(1).Take(3))`
+  * `arr[^1]` — ostatni element (`Index` od końca)
