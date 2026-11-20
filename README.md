@@ -26,6 +26,7 @@
 19. [Generyki, Ograniczenia (`where T : ...`), Inwariancja, Kowariancja (`out`) i Kontrawariancja (`in`)](#19-generyki-ograniczenia-where-t--inwariancja-kowariancja-out-i-kontrawariancja-in)
 20. [Praktyczny przykład (Lab 14): 5 zapytań LINQ w Method Syntax na bazie sklepu](#20-praktyczny-przykład-lab-14-5-zapytań-linq-w-method-syntax-na-bazie-sklepu)
 21. [Praca z `DateTime` i `TimeSpan` (daty, różnice czasu, formatowanie)](#21-praca-z-datetime-i-timespan-daty-różnice-czasu-formatowanie)
+22. [Ściąga na lab: Model InPost (`DistributionCenter`) i prawdopodobne wzorce zadań](#22-ściąga-na-lab-model-inpost-distributioncenter-i-prawdopodobne-wzorce-zadań)
 
 ---
 
@@ -1254,4 +1255,65 @@ int hour          = dt.Hour;  // 0..23
 Console.WriteLine($"{dt:yyyy-MM-dd HH:mm}"); // "2025-01-02 07:37"
 Console.WriteLine($"{dt:MMM}");              // "Jan" (przy CultureInfo.InvariantCulture)
 Console.WriteLine($"{ts:m\\:ss}");           // "3:31" (w TimeSpan dwukropek trzeba eskejpować \:)
+```
+
+
+---
+
+## 22. Ściąga na lab: Model InPost (`DistributionCenter`) i prawdopodobne wzorce zadań
+
+### Ważne cechy modelu `DistributionCenter`
+* Kolekcje to **`Dictionary<string, T>`** (`Shipments`, `Senders`, `Recipients`, `Couriers`, `Lockers`, `TrackingHistory`) $\rightarrow$ w LINQ odwołuj się do **`.Values`** (np. `dc.Shipments.Values`).
+* `DeliveredAt` i `PickupDeadline` to **`DateTime?` (nullable)** $\rightarrow$ przed odejmowaniem sprawdź `.HasValue` (lub `!= null`) i użyj `.Value`.
+* `Locker.StoredShipmentsBySize` to `Dictionary<ParcelSize, HashSet<string>>` $\rightarrow$ do spłaszczenia wszystkich kodów użyj `.Values.SelectMany(s => s)`.
+
+---
+
+### Prawdopodobne zadania (na bazie Lab08, Lab10 i Lab14)
+
+#### 1. Własne iteratory (`yield` bez LINQ — jak Lab08)
+* `FirstNSeqElem(int n, IEnumerable source)` — zwraca pierwsze `n` elementów.
+* `SeqFormat(IEnumerable source, string format = "{0}")` — konwertuje elementy na `string` przez `string.Format(format, e)`.
+
+#### 2. Własne `Reduce`, `Sum`, `Min`, `Max` (`INumber<T>` — jak Lab10)
+* Patrz **Rozdział 19** (`Reduce` + `T.Zero`, `T.CreateTruncating(double.NegativeInfinity / PositiveInfinity)`, `T.Max`, `T.Min`).
+* Zastosowanie: np. suma/min/max wagi paczek `dc.Shipments.Values.Select(s => s.Parcel.WeightKg).Sum()`.
+
+#### 3. Kto nie ma żadnych przesyłek / przypisań (jak Lab14 Zad. 1)
+```csharp
+var sendersWithoutShipments = dc.Senders.Values
+    .GroupJoin(
+        dc.Shipments.Values,
+        s => s.Id,
+        sh => sh.SenderId,
+        (s, shipments) => (Sender: s, Count: shipments.Count()))
+    .Where(x => x.Count == 0)
+    .OrderBy(x => x.Sender.Name)
+    .Select(x => (x.Sender.Id, x.Sender.Name));
+```
+
+#### 4. Pierwsze N dostarczonych paczek + czas dostawy (jak Lab14 Zad. 3)
+```csharp
+var firstDelivered = dc.Shipments.Values
+    .Where(sh => sh.DeliveredAt.HasValue)
+    .Select(sh => (
+        sh.TrackingCode,
+        DeliveredAt: sh.DeliveredAt!.Value,
+        DeliveryHours: (sh.DeliveredAt.Value - sh.CreatedAt).TotalHours
+    ))
+    .OrderBy(x => x.DeliveredAt)
+    .Take(10);
+```
+
+#### 5. Top N miast / paczkomatów / kurierów według liczby lub wagi paczek (jak Lab14 Zad. 4)
+```csharp
+var topCities = dc.Shipments.Values
+    .GroupBy(sh => sh.DestinationCity)
+    .Select(g => (
+        City: g.Key,
+        Count: g.Count(),
+        TotalWeight: g.Sum(sh => sh.Parcel.WeightKg)
+    ))
+    .OrderByDescending(x => x.Count)
+    .Take(5);
 ```
