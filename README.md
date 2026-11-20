@@ -861,3 +861,35 @@ public static class ListeningExtensions
 }
 ```
 > Obie składnie (`this ...` oraz `extension(...)`) kompilują się do zwykłych metod statycznych i można je mieszać w jednym projekcie.
+
+
+### Własne klasy jako `IEnumerable` (`GetEnumerator`) i nieskończone sekwencje
+
+Aby własna klasa działała w pętli `foreach` (oraz w metodach przyjmujących `IEnumerable`), musi implementować interfejs `IEnumerable` — czyli posiadać metodę `public IEnumerator GetEnumerator()`.
+
+* To **nie** jest nadpisanie (`override`), lecz **implementacja interfejsu**.
+* Wewnątrz `GetEnumerator()` można użyć `while (true)` + `yield return`, tworząc **nieskończoną sekwencję** — program nie zawiesi się, bo `yield return` jest leniwy i zatrzymuje wykonanie do czasu, aż ktoś poprosi o kolejny element.
+
+```csharp
+class FibonacciSequence : IEnumerable
+{
+    public IEnumerator GetEnumerator()
+    {
+        int a = 0, b = 1;
+        while (true)
+        {
+            yield return a; // oddaje element i "pauzuje" metodę
+            (a, b) = (b, a + b);
+        }
+    }
+}
+
+// Użycie:
+var fib = new FibonacciSequence();
+foreach (var x in fib) // kompilator sam wywoła fib.GetEnumerator()
+{
+    Console.WriteLine(x);
+    if (x > 100) break; // pamiętaj o warunku stopu (lub użyj Take / FirstNSeqElem)!
+}
+```
+> **Uwaga przy zapętlonych tablicach:** Jeśli robisz `while (true)` na tablicy, na początku sprawdź `if (arr.Length == 0) yield break;` — inaczej pusta tablica bez żadnego `yield return` zawiesi program w nieskończonej pętli!
