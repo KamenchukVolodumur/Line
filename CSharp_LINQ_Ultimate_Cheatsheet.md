@@ -19,6 +19,10 @@
 12. [Operacje na zbiorach: `Union`, `Intersect`, `Except`](#12-operacje-na-zbiorach)
 13. [Konwersja do kolekcji: `ToList`, `ToDictionary`, `ToHashSet`](#13-konwersja-do-kolekcji)
 14. [⚡️ Wielka tabela podsumowująca](#14-wielka-tabela-podsumowująca)
+15. [Formatowanie stringów (`string.Format`, `$""`, maski)](#15-formatowanie-stringów-stringformat--i-maski-formatowania)
+16. [Kompletny przegląd metod LINQ na przykładach (Lab 05 + .NET 8–10)](#16-kompletny-przegląd-metod-linq-na-przykładach-lab-05--net-810)
+17. [Delegaty, Wyrażenia Lambda i Domknięcia (Closures)](#17-delegaty-wyrażenia-lambda-i-domknięcia-closures)
+18. [Własne iteratory (`yield`), Enumerator i Bloki rozszerzające (C# 14)](#18-własne-iteratory-yield-enumerator-i-bloki-rozszerzające-c-14)
 
 ---
 
