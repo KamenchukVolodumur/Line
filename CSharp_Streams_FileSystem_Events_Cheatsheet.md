@@ -708,3 +708,15 @@ public class FileLogger : IDisposable
 * W `if (disposing)` zwalniamy obiekty **zarządzane** (`_sw?.Dispose()`).
 * Poza `if (disposing)` (czyli także z finalizatora) zwalniamy **WYŁĄCZNIE niezarządzane** zasoby (np. `Marshal.FreeHGlobal(ptr)` — w finalizatorze **nie wolno** dotykać innych obiektów zarządzanych!).
 * W nowoczesnym .NET zamiast ręcznego finalizatora i `IntPtr` lepiej używać `SafeHandle`.
+
+
+### Kiedy `using var ...;` vs `using (...) { ... }` (i co wymaga `using`)?
+
+* **Wymaga `using` (implementuje `IDisposable`):** wszystkie strumienie (`FileStream`, `MemoryStream`, `GZipStream`, `BufferedStream`, `entry.Open()`), adaptery (`StreamReader`/`Writer`, `BinaryReader`/`Writer`), archiwa (`ZipArchive`, `TarWriter`/`Reader`), `FileSystemWatcher`, `Timer`, `IncrementalHash`, `File.OpenHandle(...)`.
+* **NIE wymaga `using`:** `FileInfo`, `DirectoryInfo`, `DriveInfo`, `Path`, fasady `File.ReadAll*` (nie są `IDisposable` albo same zamykają plik).
+
+| Wariant | Kiedy używać? | Przykład |
+| :--- | :--- | :--- |
+| **`using var x = ...;`** *(bez klamr)* | **Domyślnie (90% przypadków)** — zwalnia na końcu bieżącej metody / bloku `if` / iteracji `foreach`. Czytelniejszy kod. | `using var fs = File.OpenRead("a.txt");` |
+| **`using (var x = ...) { ... }`** *(z klamrami)* | Gdy musisz **zamknąć zasób WCZEŚNIEJ**, np. zaraz potem czytasz ten sam plik, sprawdzasz `ms.Length` po `GZipStream(..., leaveOpen: true)` albo tworzysz kilka wpisów w `ZipArchive(Create)` po kolei. | `using (var sw = new StreamWriter("a.txt")) { sw.WriteLine("Hi"); }` $\rightarrow$ potem `File.ReadAllText("a.txt")` |
+| **`await using var x = ...;`** | Dla obiektów implementujących **`IAsyncDisposable`** (np. `await ZipFile.OpenReadAsync(...)` w .NET 10). | `await using var zip = await ZipFile.OpenReadAsync("a.zip");` |
