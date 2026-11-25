@@ -35,6 +35,19 @@ Każdy strumień wspiera (lub nie) 3 operacje — sprawdzamy to właściwościam
 | **Zapis** | `CanWrite` | `Write(...)`, `WriteByte()`, `Flush()` | Pliki (do zapisu), sieć, pamięć, `GZipStream(Compress)` |
 | **Pozycjonowanie** | `CanSeek` | `Seek(offset, origin)`, `Position`, `Length` | **Pliki** i **pamięć** (sieć, łącza i strumienie kompresujące **NIE** wspierają `Seek`!) |
 
+```csharp
+using Stream stream = File.OpenRead("lorem.txt");
+Console.WriteLine($"CanRead:  {stream.CanRead}");  // True
+Console.WriteLine($"CanWrite: {stream.CanWrite}"); // False (otwarty tylko do odczytu)
+Console.WriteLine($"CanSeek:  {stream.CanSeek}");  // True  (plik wspiera Seek)
+
+// Typowe użycie w metodzie przyjmującej dowolny Stream:
+if (stream.CanSeek)
+{
+    stream.Position = 0; // bezpieczne przewinięcie (bez sprawdzenia na GZipStream/sieci poleci NotSupportedException!)
+}
+```
+
 > **Obsługa błędów (różnica względem C/POSIX):** Zamiast kodów błędu i `errno`, C# rzuca **wyjątki**: najczęściej `IOException` (oraz pochodne: `FileNotFoundException`, `DirectoryNotFoundException`, `EndOfStreamException`), `UnauthorizedAccessException` (brak uprawnień) lub `NotSupportedException` (np. próba `Seek` na strumieniu sieciowym).
 
 ### Odczyt z surowego strumienia (pętla + nowości z .NET 7)
