@@ -168,6 +168,39 @@ IEnumerable<string> lazyLines = File.ReadLines("huge.log");
 int errors = lazyLines.Count(line => line.Contains("Error")); // czyta linia po linii!
 ```
 
+**Jak Fasada wygląda w środku (pod spodem)?** Po prostu ukrywa rutynę tworzenia strumienia, adaptera i `using`:
+```csharp
+public static class MyFileFacade
+{
+    public static string ReadAllText(string path)
+    {
+        using FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read);
+        using StreamReader sr = new StreamReader(fs, Encoding.UTF8);
+        return sr.ReadToEnd();
+    }
+}
+```
+
+### Prymitywny przykład własnego Adaptera (jak działa w środku)
+Adapter **NIE dziedziczy po `Stream`** — trzyma `Stream` w prywatnym polu i **zmienia interfejs** (z `byte[]` na np. `string`, jak przejściówka do gniazdka):
+
+```csharp
+public class SimpleTextWriter : IDisposable
+{
+    private readonly Stream _stream; // dowolny Stream pod spodem
+    public SimpleTextWriter(Stream stream) => _stream = stream;
+
+    // Zupełnie inny interfejs (string zamiast byte[])!
+    public void WriteLine(string text)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(text + Environment.NewLine);
+        _stream.Write(bytes, 0, bytes.Length); // tłumaczy tekst na bajty i zapisuje
+    }
+
+    public void Dispose() => _stream.Dispose();
+}
+```
+
 ### Prymitywny przykład własnego Dekoratora (jak działa wzorzec pod spodem)
 Dekorator dziedziczy po `Stream`, przyjmuje inny `Stream` w konstruktorze i deleguje do niego wywołania, dokładając własną logikę (np. liczenie zapisanych bajtów):
 
