@@ -242,6 +242,19 @@ public class CountingStream : Stream
 Dostępne dekoratory kompresji (`System.IO.Compression`):
 * `DeflateStream` (surowy algorytm Deflate), `ZLibStream` (.NET 6, format zlib), `GZipStream` (format `.gz` z nagłówkiem i stopką), `BrotliStream` (algorytm Brotli).
 
+**Konstruktory (identyczne dla wszystkich 4 klas kompresji!):**
+```csharp
+// 1. Tryb Compress albo Decompress (+ opcjonalnie leaveOpen):
+new GZipStream(Stream stream, CompressionMode mode, bool leaveOpen = false)
+
+// 2. Zawsze kompresja — z wyborem poziomu (Optimal, Fastest, SmallestSize, NoCompression):
+new GZipStream(Stream stream, CompressionLevel compressionLevel, bool leaveOpen = false)
+```
+
+> **Który strumień owinąć w `GZipStream` (`fsIn` czy `fsOut`)?**
+> * **Kompresja (`Compress`):** owijamy **wyjście (`fsOut`)** $\rightarrow$ `fsIn.CopyTo(gz)` (dane wchodzą do `gz`, kompresują się i lecą do `fsOut`).
+> * **Dekompresja (`Decompress`):** owijamy **wejście (`fsIn`)** $\rightarrow$ `gz.CopyTo(fsOut)` (`gz` czyta z `fsIn`, rozpakowuje i zapisuje do `fsOut`).
+
 **Sposób 1 — nowoczesny i najprostszy (`CopyTo`):**
 ```csharp
 // Kompresja: file.txt -> (FileStream) -> CopyTo -> GZipStream(Compress) -> FileStream(file.txt.gz)
