@@ -649,7 +649,27 @@ Console.ReadLine();
    * `Created`, `Changed`, `Deleted` $\rightarrow$ **`FileSystemEventArgs`** (`ChangeType`, `Name`, `FullPath`).
    * `Renamed` $\rightarrow$ **`RenamedEventArgs`** (dziedziczy po `FileSystemEventArgs`, dodaje `OldName` i `OldFullPath`). Dzięki **kontrawariancji** tę samą metodę `void OnAny(object s, FileSystemEventArgs e)` można podpiąć także pod `Renamed`!
    * `Error` $\rightarrow$ **`ErrorEventArgs`** (`GetException()`). Zgłasza wewnętrzne błędy samego watchera (np. **przepełnienie bufora** przy lawinie zmian — informuje, że część zdarzeń mogła zaginąć!).
-3. **Wątek w tle:** Zdarzenia `FileSystemWatcher` są wywoływane **asynchronicznie w osobnym wątku**! Wyjątek rzucony z handlera nie trafi do `try/catch` w `Main` (zabije proces) — trzeba go łapać w samym handlerze, a wspólny stan chronić przez `lock`.
+3. **Wątek w tle i `lock`:** Zdarzenia `FileSystemWatcher` są wywoływane **asynchronicznie w osobnym wątku**! Wyjątek rzucony z handlera nie trafi do `try/catch` w `Main` (zabije proces) — trzeba go łapać w samym handlerze, a wspólną kolekcję (np. `_files`) chronić przez **`lock`**:
+   ```csharp
+   private readonly Lock _lock = new(); // w .NET 9+ (w starszych: private readonly object _lock = new();)
+   private readonly HashSet<string> _files = new();
+
+   private void OnFileCreated(object sender, FileSystemEventArgs e)
+   {
+       if (e.Name is null) return;
+       lock (_lock) // w danej chwili tylko 1 wątek może modyfikować _files
+       {
+           _files.Add(e.Name);
+       }
+       DirectoryChanged?.Invoke(this, EventArgs.Empty); // zdarzenie wywołujemy POZA lock!
+   }
+
+   public string[] Files
+   {
+       get { lock (_lock) return _files.ToArray(); } // odczyt też pod lock!
+   }
+   ```
+   > **Dlaczego `lock (_lock)`, a nie `lock (_files)`?** `lock` nie blokuje samego obiektu, tylko sekcję kodu w `{ ... }`. Zła praktyka to blokować samą kolekcję (`_files`), bo ktoś z zewnątrz mógłby ją widzieć — dlatego tworzymy osobne prywatne pole `_lock` („klucz do pokoju”).
 4. **Debouncing:** Jedno „Zapisz” w edytorze często generuje kilka zdarzeń `Changed`/`Created` naraz. Dlatego w praktyce używa się timera (`System.Threading.Timer`), który resetuje odliczanie po każdej zmianie i uruchamia akcję dopiero po chwili ciszy (np. 2 s).
 
 ---
